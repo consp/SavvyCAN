@@ -4,6 +4,7 @@
 #include "gvretserial.h"
 #include "mqtt_bus.h"
 #include "socketcand.h"
+#include "slcan_extended.h"
 
 using namespace CANCon;
 
@@ -20,6 +21,8 @@ CANConnection* CanConFactory::create(type pType, QString pPortName, QString pDri
         return new SocketCANd(pPortName);
     case MQTT:
         return new MQTT_BUS(pPortName);
+    case SLCAN:
+        return new SlcanExtendedConnection(pPortName);
     default: {}
     }
 

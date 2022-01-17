@@ -43,6 +43,7 @@ private:
     void selectRemote();
     void selectKayak();
     void selectMQTT();
+    void selectSLCAN();
     bool isSerialBusAvailable();
     void setPortName(CANCon::type pType, QString pPortName, QString pDriver);
 };

@@ -20,6 +20,7 @@ namespace CANCon {
         REMOTE,
         KAYAK,
         MQTT,
+        SLCAN,
         NONE
     };
 }

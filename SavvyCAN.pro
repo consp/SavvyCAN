@@ -57,6 +57,7 @@ SOURCES += main.cpp\
     connections/gvretserial.cpp \
     connections/socketcand.cpp \
     connections/canconmanager.cpp \
+    connections/slcan_extended.cpp \
     re/sniffer/snifferitem.cpp \
     re/sniffer/sniffermodel.cpp \
     re/sniffer/snifferwindow.cpp \
@@ -143,6 +144,7 @@ HEADERS  += mainwindow.h \
     connections/canconfactory.h \
     connections/gvretserial.h \
     connections/canconmanager.h \
+    connections/slcan_extended.h \
     re/sniffer/snifferitem.h \
     re/sniffer/sniffermodel.h \
     re/sniffer/snifferwindow.h \

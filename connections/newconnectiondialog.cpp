@@ -12,10 +12,12 @@ NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QSt
     if (isSerialBusAvailable())
     {
         ui->rbSocketCAN->setEnabled(true);
+        ui->rbSLCAN->setEnabled(true);
     }
     else
     {
         ui->rbSocketCAN->setEnabled(false);
+        ui->rbSLCAN->setEnabled(false);
         QString errorString;
         const QList<QCanBusDeviceInfo> devices = QCanBus::instance()->availableDevices(QStringLiteral("socketcan"), &errorString);
         if (!errorString.isEmpty()) ui->rbSocketCAN->setToolTip(errorString);
@@ -27,6 +29,7 @@ NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QSt
     connect(ui->rbRemote, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
     connect(ui->rbKayak, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
     connect(ui->rbMQTT, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
+    connect(ui->rbSLCAN, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
 
     connect(ui->cbDeviceType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewConnectionDialog::handleDeviceTypeChanged);
     connect(ui->btnOK, &QPushButton::clicked, this, &NewConnectionDialog::handleCreateButton);
@@ -56,6 +59,7 @@ void NewConnectionDialog::handleConnTypeChanged()
     if (ui->rbRemote->isChecked()) selectRemote();
     if (ui->rbKayak->isChecked()) selectKayak();
     if (ui->rbMQTT->isChecked()) selectMQTT();
+    if (ui->rbSLCAN->isChecked()) selectSLCAN();
 }
 
 void NewConnectionDialog::handleDeviceTypeChanged()
@@ -128,6 +132,12 @@ void NewConnectionDialog::selectMQTT()
     ui->cbPort->clear();
 }
 
+void NewConnectionDialog::selectSLCAN()
+{
+    // same as serial
+    selectSerial();
+}
+
 void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QString pDriver)
 {
 
@@ -148,6 +158,8 @@ void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QSt
         case CANCon::MQTT:
             ui->rbMQTT->setChecked(true);
             break;
+        case CANCon::SLCAN:
+            ui->rbSLCAN->setChecked(true);
         default: {}
     }
 
@@ -157,6 +169,7 @@ void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QSt
     switch(pType)
     {
         case CANCon::GVRET_SERIAL:
+        case CANCon::SLCAN:
         {
             int idx = ui->cbPort->findText(pPortName);
             if( idx<0 ) idx=0;
@@ -201,7 +214,7 @@ QString NewConnectionDialog::getPortName()
     case CANCon::SERIALBUS:
     case CANCon::REMOTE:
     case CANCon::MQTT:
-        return ui->cbPort->currentText();
+    case CANCon::SLCAN:
     case CANCon::KAYAK:
         return ui->cbPort->currentText();
     default:
@@ -227,6 +240,7 @@ CANCon::type NewConnectionDialog::getConnectionType()
     if (ui->rbRemote->isChecked()) return CANCon::REMOTE;
     if (ui->rbKayak->isChecked()) return CANCon::KAYAK;
     if (ui->rbMQTT->isChecked()) return CANCon::MQTT;
+    if (ui->rbSLCAN->isChecked()) return CANCon::SLCAN;
     qDebug() << "getConnectionType: error";
 
     return CANCon::NONE;
