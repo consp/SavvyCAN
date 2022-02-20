@@ -106,9 +106,11 @@ bool SlcanExtendedConnection::waitForResponse(int ms) {
     QTime dieTime= QTime::currentTime().addMSecs(ms);//wait a bit
     while (QTime::currentTime() < dieTime) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
-        if (rxdata.contains('\r')) {
+        if (rxdata.contains('\r') || cmd_success) {
+            cmd_success = false;
             return true;
         } else if (rxdata.contains('\a')) {
+            cmd_success = false;
             return false;
         }
     }
@@ -129,6 +131,7 @@ SlcanExtendedConnection::SlcanExtendedConnection(QString portName) :
     extended = false;
     binary = false;
     processResults = false;
+    cmd_success = false;
 
     int oldBuses = mBusData.length();
     mBusData.resize(mNumBuses);
@@ -159,45 +162,35 @@ void SlcanExtendedConnection::sendDebug(const QString debugText)
 void SlcanExtendedConnection::piStarted()
 {
     // baud rates to attempt
+    // Attempt in order of occurance (most common to least common)
     int baudrates[14] = {
         115200, // most commonly used one
         57200, // default on many devices
         500000, // common fast mode
         1000000, // fastest usable for most avr's (e.g. arduino)
-        1500000,
+        1500000, // possible on 20MHz avr's
         2000000, // fastest capable for avr's (e.g. custom boards)
-        2400, // why? Ah, you like teletypes!
-        9600, // why? Ah, you like teletypes!
+        3000000, // fastest possible with 24MHz OC'd avr
+        4000000, // fastest supported by linux without custom baud settings
+        230400, // double rate 115200, uncommon
+        250000, // almost never used as 500k is usually possible on these devices as well
         19200, // default for some classic RS232 ports
         38400, // default on some devices, mostly modems though
-        230400, // double rate 115200, uncommon
-        250000,
-        3000000, // almost never an option
-        4000000, // fastest supported by linux
+        9600, // why? Ah, you like using CAN over teletype!
+        2400, // why? Ah, you like using CAN over teletype!
     };
     sendDebug("piStarted()");
     /* create device */
     QString errorString;
     sendDebug("Creating device instance");
+    sendDebug("Serial connection slcan device.");
 
-    /* connect slots */
-
-/*    connect(&mTimer, SIGNAL(timeout()), this, SLOT(testConnection()));
-    mTimer.setInterval(1000);
-    mTimer.setSingleShot(false); //keep ticking
-    mTimer.start();*/
-
-    // 
-    //
-
-    
-    sendDebug("Serial connection slcan device");
     serial = new QSerialPort(QSerialPortInfo(getPort()));
     if(!serial) {
         sendDebug("can't open serial port " + getPort());
         return;
     }
-    sendDebug("Created Serial Port Object");
+    sendDebug("Attempting to find baud rate.");
 
     /* connect reading event */
     connect(serial, SIGNAL(error(QSerialPort::SerialPortError)), this, SLOT(serialError(QSerialPort::SerialPortError)));
@@ -237,11 +230,10 @@ void SlcanExtendedConnection::piStarted()
     } while(rate < 14);
 
 
-    mNumBuses = 3; // fix for now
-    extended = false; // fix for now
+    mNumBuses = 1; // fix for now, detect later
+    extended = false; // fix for now, detect later
 
     canbus_settings = (slcan_settings *) calloc(sizeof(slcan_settings), mNumBuses);
-    // configure
 
     connectDevice();
 }
@@ -432,16 +424,17 @@ void SlcanExtendedConnection::connectDevice() {
     // send close no matter what
     sendState(-1, CLOSED);
 
+    // detect if extended will fail on incompatible devices with [BELL] (0x07 aka \a)
     buffer.append(SLCAN_CMD_EXTENDED_BINARY);
     buffer.append('0');
     buffer.append(SLCAN_CMD_OK);
-    // detect if extended
 
 
     rxdata.clear();
     sendToSerial(buffer);
     delay(50);
 
+    // all responses should be 1 byte (fail or success) everything else is considered resigual garbadge
     if (rxdata.length() > 1) {
         sendDebug("Second attempt");
         rxdata.clear();
@@ -449,8 +442,12 @@ void SlcanExtendedConnection::connectDevice() {
         delay(50);
     }
 
+    // default 
+    extended = false;
+    binary = false;
+
     if (rxdata.length() != 1) {
-        sendDebug("Garbarge detected");
+        sendDebug("Invalid data detected, maybe try a different baud mode");
         failed = true;
     } else {
         if (rxdata[0] == SLCAN_CMD_OK) {
@@ -458,12 +455,11 @@ void SlcanExtendedConnection::connectDevice() {
             binary = true;
             sendDebug("Extended protocol supported");
         } else {
-            extended = false;
-            binary = false;
             sendDebug("Using default protocol");
         }
     }
-    rxdata.clear();
+
+    rxdata.clear(); // remove leftover data
 
     if (extended) {
         // detect busses
@@ -519,8 +515,7 @@ void SlcanExtendedConnection::connectDevice() {
 
     // enabled!
 
-
-    // set binary mode (disabled for now)
+    // set binary mode
     setBinary(binary);
 
     // enable processing
@@ -619,25 +614,8 @@ void SlcanExtendedConnection::setBinary(bool mode) {
 
 void SlcanExtendedConnection::connectionTimeout()
 {
-    /*
-    //one second after trying to connect are we actually connected?
-    if (CANCon::NOT_CONNECTED==getStatus()) //no?
-    {
-        //then emit the the failure signal and see if anyone cares
-        sendDebug("Failed to connect to GVRET at that com port");
-
-        //toggle the serial mode and try again
-        disconnectDevice();
-        connectDevice();
-    }
-    else
-    {
-        connect(&mTimer, SIGNAL(timeout()), this, SLOT(handleTick()));
-        mTimer.setInterval(250); //tick four times per second
-        mTimer.setSingleShot(false); //keep ticking
-        mTimer.start();
-    }*/
 }
+
 void SlcanExtendedConnection::readSerialData()
 {
     QByteArray data;
@@ -662,14 +640,14 @@ void SlcanExtendedConnection::readSerialData()
 }
 
 void SlcanExtendedConnection::processData() {
-    // 
+    // process recieved data 
 
     QByteArray payload;
     CANFrame frame, *frame_p;
 
     if (rxdata.length() < 1) return;
 
-    // 0xA5 should never be in any SLCAN data packet
+    // 0xA5 should never be in any SLCAN data packet which is why it can be detected easilly
     if (binary && rxdata.contains(0xA5) && rxdata.length() >= (int) sizeof(slcan_binary)) {  // explicit conversion due to c++ being c??
         // strip garbadge
         while(rxdata.length() > 0 && rxdata.contains(0xA5)) {
@@ -709,6 +687,7 @@ void SlcanExtendedConnection::processData() {
             }
             rxdata.remove(0, sizeof(slcan_binary));
         }
+    // Normal mode, only read if containing \r
     } else if (rxdata.contains(SLCAN_CMD_OK)) {
         while(rxdata.length() > 0 && rxdata.contains(SLCAN_CMD_OK)) {
             int bus = 0;
@@ -762,15 +741,24 @@ void SlcanExtendedConnection::processData() {
                 default:
                     break;
             }
-            rxdata.remove(0, rxdata.indexOf(SLCAN_CMD_OK) + 1);
+            if (rxdata.contains(SLCAN_CMD_OK)) {
+                rxdata.remove(0, rxdata.indexOf(SLCAN_CMD_OK) + 1);
+                cmd_success = true;
+            }
         }
         if (!rxdata.contains(SLCAN_CMD_OK)) {
             if (rxdata.length() > (int) SLCAN_MAX_EXT_SEND_LEN) rxdata.clear(); // mop up data
             return;
         }//  && !rxdata.contains(SLCAN_CMD_ERROR)
+    // error recieved
+    } else if (rxdata.contains(SLCAN_CMD_ERROR)) {
+        rxdata.remove(0, rxdata.indexOf(SLCAN_CMD_ERROR));
+        cmd_success = false;
+    // if not wait for buffer to fill up (SLCAN has no way to detect a partial message without \r or \a
     } else if (rxdata.length() > (int) SLCAN_MAX_EXT_SEND_LEN) {
         rxdata.clear();
-    }
+        cmd_success = false;
+    } // else is not enough data received
 }
 
 void SlcanExtendedConnection::sendToSerial(const QByteArray &bytes)
