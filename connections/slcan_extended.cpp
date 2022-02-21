@@ -163,7 +163,13 @@ void SlcanExtendedConnection::piStarted()
 {
     // baud rates to attempt
     // Attempt in order of occurance (most common to least common)
-    int baudrates[14] = {
+
+#ifndef Q_OS_WIN32
+#define BAUD_RATES 14
+#else
+#define BAUD_RATES 13
+#endif
+    int baudrates[BAUD_RATES] = {
         115200, // most commonly used one
         57200, // default on many devices
         500000, // common fast mode
@@ -171,7 +177,9 @@ void SlcanExtendedConnection::piStarted()
         1500000, // possible on 20MHz avr's
         2000000, // fastest capable for avr's (e.g. custom boards)
         3000000, // fastest possible with 24MHz OC'd avr
-        4000000, // fastest supported by linux without custom baud settings
+#ifndef Q_OS_WIN32
+        4000000, // fastest supported by linux without custom baud settings, unsupported on windows in most cases
+#endif
         230400, // double rate 115200, uncommon
         250000, // almost never used as 500k is usually possible on these devices as well
         19200, // default for some classic RS232 ports
@@ -202,11 +210,16 @@ void SlcanExtendedConnection::piStarted()
     do {
         if (serial == nullptr) return;
         /* configure */
+
         sendDebug("Baud rate attempt: " % QString::number(baudrates[rate]));
         serial->setBaudRate(baudrates[rate]); // set for 2 megabaud
         serial->setDataBits(serial->Data8);
 
-        serial->setFlowControl(serial->HardwareControl); // USB Device, so hardware flow ctrol
+#ifdef Q_OS_WIN32
+        serial->setFlowControl(serial->NoFlowControl); // Assume HW flow control on linux, no flow on windows
+#else
+        serial->setFlowControl(serial->HardwareControl); // Assume HW flow control on linux, no flow on windows
+#endif
         if (!serial->open(QIODevice::ReadWrite))
         {
             if (serial != nullptr) sendDebug("Error returned during port opening: " + serial->errorString());
@@ -217,6 +230,7 @@ void SlcanExtendedConnection::piStarted()
         QByteArray data;
         data.fill('\r', 32);
         sendToSerial(data);
+        rxdata.clear();
         // attempt to get serial, should be only numbers
         if (getVersion()) {
             baudrate = baudrates[rate];
@@ -224,10 +238,14 @@ void SlcanExtendedConnection::piStarted()
             break; 
         }
         // serial can be null if it is in use
-        if (nullptr!= serial && serial->isOpen()) serial->close();
+        if (nullptr!= serial && serial->isOpen()) {
+            qDebug() << "Not a valid baud rate";
+            serial->flush();
+            serial->close();
+        }
         rate++;
         rxdata.clear();
-    } while(rate < 14);
+    } while(rate < BAUD_RATES);
 
 
     mNumBuses = 1; // fix for now, detect later
@@ -784,7 +802,9 @@ void SlcanExtendedConnection::sendToSerial(const QByteArray &bytes)
     }
     sendDebug(buildDebug);
 
+    serial->flush();
     serial->write(bytes);
+    serial->flush();
 }
 
 bool SlcanExtendedConnection::getVersion() {
